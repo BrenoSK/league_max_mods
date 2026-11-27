@@ -65,7 +65,7 @@ public class MainActivity extends Activity {
     private String sh(String cmd) {
         StringBuilder o = new StringBuilder();
         try {
-            Process p = Runtime.getRuntime().exec(new String[]{"su", "-c", cmd});
+            java.lang.Process p = Runtime.getRuntime().exec(new String[]{"su", "-c", cmd});
             BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream()));
             String l;
             while ((l = r.readLine()) != null) o.append(l).append('\n');
@@ -112,14 +112,15 @@ public class MainActivity extends Activity {
             try {
                 server = new LocalServerSocket("leaguemax_cfg");
                 while (alive) {
-                    client = server.accept();
+                    final LocalSocket c = server.accept();
+                    client = c;
                     send("esp=" + esp + "\naim=" + aim + "\nfov=" + fov + "\n");
                     new Thread(() -> {
                         byte[] b = new byte[256];
                         StringBuilder sb = new StringBuilder();
                         try {
                             for (;;) {
-                                int n = client.getInputStream().read(b);
+                                int n = c.getInputStream().read(b);
                                 if (n <= 0) break;
                                 for (int i = 0; i < n; i++) {
                                     if (b[i] == '\n') {
@@ -127,7 +128,7 @@ public class MainActivity extends Activity {
                                         sb.setLength(0);
                                         if (s.startsWith("S|")) {
                                             String t = s.substring(2);
-                                            ui.post(() -> status.setText(t));
+                                            status.post(() -> status.setText(t));
                                         }
                                     } else sb.append((char) b[i]);
                                 }
