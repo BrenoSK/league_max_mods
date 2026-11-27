@@ -3,50 +3,118 @@ name: Build LEAGUE MAX Mods APK
 on:
   workflow_dispatch:
   push:
-    branches:
-      - main
+    branches: [main]
+
+permissions:
+  contents: read
 
 jobs:
   build:
+    name: Build Android APK
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
-      - name: Download project
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Extract project
+      - name: Locate and extract Android project
+        shell: bash
         run: |
-          unzip -q LEAGUE_MAX_Mods_Android_Project.zip -d project
-          test -f project/league_max_mods/app/build.gradle
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/league-max-source"
 
-      - name: Install Java 17
+          if [[ -f "settings.gradle" && -f "app/build.gradle" ]]; then
+            PROJECT_DIR="$GITHUB_WORKSPACE"
+          else
+            ZIP_FILE="$(find "$GITHUB_WORKSPACE" -maxdepth 1 -type f -iname 'LEAGUE_MAX_Mods_Android_v1.1.zip' -print -quit)"
+            if [[ -z "$ZIP_FILE" ]]; then
+              ZIP_FILE="$(find "$GITHUB_WORKSPACE" -maxdepth 1 -type f -iname '*.zip' -print -quit)"
+            fi
+            if [[ -z "$ZIP_FILE" ]]; then
+              echo "ERROR: No project ZIP found in repository root, and no Gradle project exists at repository root."
+              echo "Upload the project ZIP to the repository root or upload the extracted project files."
+              exit 1
+            fi
+            echo "Project archive: $ZIP_FILE"
+            unzip -q "$ZIP_FILE" -d "$RUNNER_TEMP/league-max-source"
+            SETTINGS_FILE="$(find "$RUNNER_TEMP/league-max-source" -type f -name settings.gradle -print -quit)"
+            if [[ -z "$SETTINGS_FILE" ]]; then
+              echo "ERROR: settings.gradle was not found inside the uploaded ZIP."
+              find "$RUNNER_TEMP/league-max-source" -maxdepth 4 -type f -print
+              exit 1
+            fi
+            PROJECT_DIR="$(dirname "$SETTINGS_FILE")"
+          fi
+
+          if [[ ! -f "$PROJECT_DIR/app/build.gradle" ]]; then
+            echo "ERROR: app/build.gradle was not found at $PROJECT_DIR"
+            exit 1
+          fi
+
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "Using Android project at: $PROJECT_DIR"
+          echo "Project files:"
+          find "$PROJECT_DIR" -maxdepth 3 -type f -print | sort
+
+      - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
+          cache: gradle
 
-      - name: Install Android SDK
+      - name: Set up Android SDK command-line tools
         uses: android-actions/setup-android@v3
 
-      - name: Install Gradle 8.9
+      - name: Accept Android SDK licenses and install packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +o pipefail
+          yes | sdkmanager --licenses >/dev/null
+          set -o pipefail
+          sdkmanager --install \
+            "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0"
+          sdkmanager --list_installed
+
+      - name: Set up Gradle 8.9
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
 
-      - name: Build debug APK
-        working-directory: project/league_max_mods
+      - name: Verify build environment
         run: |
-          gradle --no-daemon :app:assembleDebug
+          java -version
+          gradle --version
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          test -d "$ANDROID_HOME/platforms/android-35"
+          test -d "$ANDROID_HOME/build-tools/35.0.0"
+
+      - name: Build debug APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle --no-daemon --stacktrace -p "$PROJECT_DIR" :app:assembleDebug
 
       - name: Verify APK
+        shell: bash
         run: |
-          test -s project/league_max_mods/app/build/outputs/apk/debug/app-debug.apk
-          ls -lh project/league_max_mods/app/build/outputs/apk/debug/app-debug.apk
+          set -euo pipefail
+          APK="$PROJECT_DIR/app/build/outputs/apk/debug/app-debug.apk"
+          test -s "$APK"
+          ls -lh "$APK"
+          file "$APK"
+          mkdir -p "$GITHUB_WORKSPACE/output"
+          cp "$APK" "$GITHUB_WORKSPACE/output/app-debug.apk"
 
-      - name: Publish APK
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: LEAGUE-MAX-Mods-APK
-          path: project/league_max_mods/app/build/outputs/apk/debug/app-debug.apk
+          path: output/app-debug.apk
           if-no-files-found: error
           retention-days: 7
+          
