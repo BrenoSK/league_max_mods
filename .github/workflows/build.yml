@@ -16,7 +16,7 @@ jobs:
 
       - name: Extract project
         run: |
-          unzip -q project.zip -d project
+          unzip -q LEAGUE_MAX_Mods_Android_Project.zip -d project
           test -f project/league_max_mods/app/build.gradle
 
       - name: Install Java 17
