@@ -4,7 +4,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstdint>
+#include <cctype>
 #include <cmath>
+#include <string>
 #include <atomic>
 #include <pthread.h>
 #include <android/log.h>
@@ -110,57 +112,59 @@ int main(int argc, char** argv) {
 
 #else
 /* ================= LIB ================= */
+#include <link.h>
+#include <elf.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <sys/mman.h>
 #include <EGL/egl.h>
 #include <GLES2/gl2.h>
 
-/* ---------- il2cpp ---------- */
-typedef void* (*t0)();
-typedef void* (*t1)(void*);
-typedef void** (*t2)(void*, size_t*);
-typedef size_t (*t3)(void*);
-typedef void* (*t4)(void*, size_t);
-typedef void* (*t5)(void*, const char*, const char*);
-typedef void* (*t6)(void*, void**);
-typedef void* (*t7)(void*, const char*);
-typedef const char* (*t8)(void*);
-typedef size_t (*t9)(void*);
-typedef void* (*t10)(void*, const char*, int);
-typedef void* (*t11)(void*);
-typedef void (*t12)(void*, void*);
-typedef void (*t13)(void*, void*, void**);
-typedef size_t (*t14)(void*);
-typedef char* (*t15)(void*, size_t, size_t);
-typedef const char* (*t16)(void*);
-typedef uint32_t (*t17)(void*);
+/* ---------- assinaturas il2cpp ---------- */
+typedef void* (*f_void_v)();
+typedef void* (*f_v_v)(void*);
+typedef void** (*f_asm)(void*, size_t*);
+typedef void* (*f_v_sz)(void*, size_t);
+typedef size_t (*f_sz_v)(void*);
+typedef void* (*f_cfn)(void*, const char*, const char*);
+typedef void** (*f_fields)(void*, void**);
+typedef void* (*f_meth)(void*, const char*, int);
+typedef const char* (*f_str_v)(void*);
+typedef void (*f_fv)(void*, void*, void*);
+typedef void (*f_fs)(void*, void*);
+typedef void (*f_inv)(void*, void*, void**, void**);
+typedef char* (*f_addr)(void*, size_t, size_t);
+typedef uint32_t (*f_flags)(void*);
 
-static t0 domain_get, thread_attach, get_assemblies;
-static t1 assembly_image, object_class, class_parent;
-static t2 class_fields;
-static t3 array_len;
-static t4 image_class, field_offset, field_type, class_method, image_count;
-static t5 class_from_name;
-static t6 class_field_from_name;
-static t7 image_name;
-static t8 field_name, type_name, class_name;
-static t9 image_class_count;
-static t10 class_get_method;
-static t12 field_static_get, field_value;
-static t13 runtime_invoke;
-static t15 array_addr;
-static t17 field_flags;
+static f_void_v domain_get;
+static f_v_v thread_attach, assembly_image, field_type, object_class;
+static f_asm get_assemblies;
+static f_v_sz image_class;
+static f_sz_v image_class_count, array_len;
+static f_cfn class_from_name;
+static f_fields class_fields;
+static f_meth class_get_method;
+static f_str_v image_name, field_name, type_name, class_name;
+static f_fv field_value;
+static f_fs field_static_get;
+static f_inv runtime_invoke;
+static f_addr array_addr;
+static f_flags field_flags;
 
 static void* transform_cls;
 static void* camera_cls;
 static void* cam_obj;
 
 static void* best_cls;
-static int off_hp = -1, off_team = -1, off_local = -1, off_tr = -1;
+static void* hp_field;
+static void* team_field;
+static void* local_field;
+static void* tr_field;
+static int off_tr = -1;
 static void* list_field;
 static int list_is_array;
 static void* local_obj;
+static int local_team;
 
 /* ---------- estado ---------- */
 struct Ent { float h[3], f[3]; int hp; float dist; };
@@ -221,7 +225,7 @@ static int ieq(const char* h, const char* n) {
     return *n == 0;
 }
 static bool has(const char* h, const char* n) {
-    if (!h) return false;
+    if (!h || !n) return false;
     for (; *h; h++) if (ieq(h, n)) return true;
     return false;
 }
@@ -239,7 +243,6 @@ static bool il2_init() {
     R(image_class_count, image_get_class_count);
     R(class_from_name, class_from_name);
     R(class_fields, class_get_fields);
-    R(field_offset, field_get_offset);
     R(field_name, field_get_name);
     R(field_type, field_get_type);
     R(field_flags, field_get_flags);
@@ -264,6 +267,7 @@ static bool il2_init() {
 static void* find_image(const char* asm_name) {
     size_t n = 0;
     void** a = get_assemblies(domain_get(), &n);
+    if (!a) return nullptr;
     for (size_t i = 0; i < n; i++) {
         void* img = assembly_image(a[i]);
         const char* nm = image_name(img);
@@ -272,19 +276,18 @@ static void* find_image(const char* asm_name) {
     return nullptr;
 }
 
-static int score(void* k, int* hp, int* team, int* loc, int* tr) {
+static int score(void* k) {
     int s = 0;
-    *hp = *team = *loc = *tr = -1;
     void* it = nullptr;
     void* f;
     while ((f = (void*) class_fields(k, &it))) {
         const char* n = field_name(f);
         void* t = field_type(f);
         const char* tn = t ? type_name(t) : nullptr;
-        if (tn && has(tn, "Transform")) { s += 4; if (*tr < 0) *tr = field_offset(f); }
-        if (n && (has(n, "hp") || has(n, "health") || has(n, "vida"))) { s += 3; if (*hp < 0) *hp = field_offset(f); }
-        if (n && has(n, "team")) { s += 2; if (*team < 0) *team = field_offset(f); }
-        if (n && (has(n, "local") || has(n, "mine") || has(n, "isLocal"))) { s += 2; if (*loc < 0) *loc = field_offset(f); }
+        if (tn && has(tn, "Transform")) { s += 4; if (!tr_field) { tr_field = f; off_tr = (int) 0; } }
+        if (n && (has(n, "hp") || has(n, "health") || has(n, "vida"))) { s += 3; if (!hp_field) hp_field = f; }
+        if (n && has(n, "team")) { s += 2; if (!team_field) team_field = f; }
+        if (n && (has(n, "local") || has(n, "mine"))) { s += 2; if (!local_field) local_field = f; }
     }
     return s;
 }
@@ -301,25 +304,33 @@ static void discover() {
         if (!k) continue;
         const char* n = class_name(k);
         if (!n || !has(n, "player")) continue;
-        int hp, tm, lc, tr;
-        int s = score(k, &hp, &tm, &lc, &tr);
-        if (tr < 0) continue;
-        if (s > best) {
+
+        void *hpf = nullptr, *tmf = nullptr, *lcf = nullptr, *trf = nullptr;
+        void* save_tr = tr_field; tr_field = nullptr;
+        void* save_hp = hp_field; hp_field = nullptr;
+        void* save_tm = team_field; team_field = nullptr;
+        void* save_lc = local_field; local_field = nullptr;
+        int s = score(k);
+        trf = tr_field; hpf = hp_field; tmf = team_field; lcf = local_field;
+
+        if (trf && s > best) {
             best = s; best_cls = k;
-            off_hp = hp; off_team = tm; off_local = lc; off_tr = tr;
+            tr_field = trf; hp_field = hpf; team_field = tmf; local_field = lcf;
+        } else {
+            tr_field = save_tr; hp_field = save_hp;
+            team_field = save_tm; local_field = save_lc;
         }
     }
     if (!best_cls) { status("nenhuma classe Player com Transform"); return; }
     status((std::string("classe: ") + class_name(best_cls)).c_str());
 
-    // container
     for (size_t i = 0; i < cnt && !list_field; i++) {
         void* k = image_class(img, i);
         if (!k) continue;
         void* it = nullptr;
         void* f;
         while ((f = (void*) class_fields(k, &it))) {
-            if (!((field_flags(f)) & 0x10)) continue;
+            if (!(field_flags(f) & 0x10)) continue;
             void* t = field_type(f);
             const char* tn = t ? type_name(t) : nullptr;
             if (!tn || !has(tn, class_name(best_cls))) continue;
@@ -344,12 +355,14 @@ static void discover() {
 
 static bool wpos(void* obj, float out[3]) {
     if (!obj || !transform_cls) return false;
-    void* cls = object_class(obj);
     void* tr = nullptr;
-    if (off_tr >= 0) tr = *(void**) ((char*) obj + off_tr);
-    if (!tr && cls) {
-        void* m = class_get_method(cls, "get_transform", 0);
-        if (m) runtime_invoke(m, obj, nullptr, &tr);
+    if (tr_field) field_value(obj, tr_field, &tr);
+    if (!tr) {
+        void* cls = object_class(obj);
+        if (cls) {
+            void* m = class_get_method(cls, "get_transform", 0);
+            if (m) runtime_invoke(m, obj, nullptr, &tr);
+        }
     }
     if (!tr) return false;
     void* m = class_get_method(transform_cls, "get_position", 0);
@@ -372,11 +385,19 @@ static void scan() {
     for (int i = 0; i < n; i++) {
         void* o = *(void**) array_addr(arr, 8, i);
         if (!o) continue;
-        if (off_local >= 0) {
+        if (local_field) {
             unsigned char b = 0;
-            field_value(o, (void*) ((char*) o + 0), nullptr);
-            *(char*) &b = *(char*) ((char*) o + off_local);
-            if (b) { local_obj = o; continue; }
+            field_value(o, local_field, &b);
+            if (b) {
+                local_obj = o;
+                if (team_field) field_value(o, team_field, &local_team);
+                continue;
+            }
+        }
+        if (team_field && local_team) {
+            int tm = 0;
+            field_value(o, team_field, &tm);
+            if (tm == local_team) continue;
         }
         float f[3];
         if (!wpos(o, f)) continue;
@@ -384,10 +405,10 @@ static void scan() {
         e.f[0] = f[0]; e.f[1] = f[1]; e.f[2] = f[2];
         e.h[0] = f[0]; e.h[1] = f[1] + 1.55f; e.h[2] = f[2];
         e.hp = 100;
-        if (off_hp >= 0) {
+        if (hp_field) {
             int hp = 0;
-            memcpy(&hp, (char*) o + off_hp, 4);
-            e.hp = hp > 0 && hp <= 200 ? hp : 100;
+            field_value(o, hp_field, &hp);
+            e.hp = (hp > 0 && hp <= 200) ? hp : 100;
         }
         float dx = f[0] - cam_pos[0], dy = f[1] - cam_pos[1], dz = f[2] - cam_pos[2];
         e.dist = sqrtf(dx * dx + dy * dy + dz * dz);
@@ -562,14 +583,4 @@ __attribute__((constructor)) static void boot() {
     LOGI("injetada %d", getpid());
     pthread_t t;
     pthread_create(&t, nullptr, [](void*) -> void* {
-        sleep(1);
-        orig_um4 = (decltype(orig_um4)) dlsym(RTLD_DEFAULT, "glUniformMatrix4fv");
-        orig_swap = (decltype(orig_swap)) dlsym(RTLD_DEFAULT, "eglSwapBuffers");
-        got_hook("glUniformMatrix4fv", (void*) hook_um4);
-        got_hook("eglSwapBuffers", (void*) hook_swap);
-        pthread_create(&t, nullptr, sock_thread, nullptr);
-        pthread_create(&t, nullptr, work_thread, nullptr);
-        return nullptr;
-    }, nullptr);
-}
-#endif
+        sleep(
