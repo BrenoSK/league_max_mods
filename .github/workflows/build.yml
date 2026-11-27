@@ -50,4 +50,3 @@ jobs:
           path: project/league_max_mods/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 7
-
